@@ -1,0 +1,2 @@
+# Inundation-Mapping-Using-GEE
+A code that maps inundation using Google Earth Engine. It uses a function to count cloudy pixels over the AOI so that images containing cloud, but not over the AOI can remain in the image collection, increasing the number of images that can be used for accurate inundation mapping. The water index used in this code was Mcfeeter's NDWI (1996) but any index can be substituted by altering the bands in the water function. 
