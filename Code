@@ -1,0 +1,250 @@
+// Inundation Mapping //
+
+// A cloud mask for Landsat 1 and 2 MSS
+var cloudMaskL12 = function(image) {
+  var qa = image.select('QA_PIXEL');
+  // If the cloud bit (5) is set and the cloud confidence (7) is high
+  // or the cloud shadow bit is set (3), then it's a bad pixel.
+  var cloud = qa.bitwiseAnd(1 << 5)
+                  .and(qa.bitwiseAnd(1 << 7))
+                  .or(qa.bitwiseAnd(1 << 3));
+  // Remove edge pixels that don't occur in all bands
+  var mask2 = image.mask().reduce(ee.Reducer.min());
+  return image.updateMask(cloud.not()).updateMask(mask2);
+};
+// A cloud mask for Landsat 3 MSS
+var cloudMaskL3 = function(image) {
+  var qa = image.select('BQA');
+  // If the cloud bit (5) is set and the cloud confidence (7) is high
+  // or the cloud shadow bit is set (3), then it's a bad pixel.
+  var cloud = qa.bitwiseAnd(1 << 5)
+                  .and(qa.bitwiseAnd(1 << 7))
+                  .or(qa.bitwiseAnd(1 << 3));
+  // Remove edge pixels that don't occur in all bands
+  var mask2 = image.mask().reduce(ee.Reducer.min());
+  return image.updateMask(cloud.not()).updateMask(mask2);
+};
+// A cloud mask for Landsat 4, 5 TM:
+var cloudMaskL457 = function(image) {
+  var qa = image.select('pixel_qa');
+  // If the cloud bit (5) is set and the cloud confidence (7) is high
+  // or the cloud shadow bit is set (3), then it's a bad pixel.
+  var cloud = qa.bitwiseAnd(1 << 5)
+                  .and(qa.bitwiseAnd(1 << 7))
+                  .or(qa.bitwiseAnd(1 << 3));
+  // Remove edge pixels that don't occur in all bands
+  var mask2 = image.mask().reduce(ee.Reducer.min());
+  return image.updateMask(cloud.not()).updateMask(mask2);
+};
+
+// A cloud mask for Landsat 8 and 9 
+function maskL8sr(image) {
+  // Bits 3 and 5 are cloud shadow and cloud, respectively.
+  var cloudShadowBitMask = (1 << 3);
+  var cloudsBitMask = (1 << 5);
+  // Get the pixel QA band.
+  var qa = image.select('QA_PIXEL');
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+                 .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+  return image.updateMask(mask);
+}
+ 
+function getCover(image, aoi, scale) {
+
+    // calculate the number of inputs 
+    var totPixels = ee.Number(image.unmask(1).reduceRegion({
+      reducer: ee.Reducer.count(),
+      scale: 30,
+      geometry: AOI,
+    }).values().get(0));
+
+    // Calculate the actual amount of pixels inside the aoi
+    var actPixels = ee.Number(image.reduceRegion({
+      reducer: ee.Reducer.count(),
+      scale: 30,
+      geometry: AOI,    
+    }).values().get(0));
+
+    // calculate the perc of cover
+    var percCover = actPixels.divide(totPixels).multiply(100).round();
+
+  // number as output
+  return image.set('percCover', percCover);
+}
+
+
+// Setting water threshold for Mcfeeter's NDWI (1996): 
+
+var waterThreshold = 0.0001; // Threshold
+
+//Water function to to calculate water area for Landsat 1, 2, 3 (MSS) For 4-5 MSS Replace B4 with B1 and B7 with B4. 
+var waterfunctionl123 = function(image){
+
+var ndwi = image.expression(
+    '(green - mir) / (green + mir)',
+    {
+        green: image.select('B4'),   
+        mir: image.select('B7')
+    }
+  )
+.rename('NDWI');
+
+//Indices greater than Threshold
+  var water01 = ndwi.gt(waterThreshold);
+
+  //Pixel mask
+  image = image.updateMask(water01).addBands(ndwi).clip(AOI);
+
+  //Area for the water pixels, in m2
+  var area = ee.Image.pixelArea();
+  var waterArea = water01.multiply(area).rename('waterArea');
+  image = image.addBands(waterArea);
+
+  var stats = waterArea.reduceRegion({
+    reducer: ee.Reducer.sum(), 
+    geometry: AOI, 
+    scale: 30,
+  });
+
+  return image.set(stats);
+};
+
+//Water function to calculate water area for Landsat 4, 5 (TM)
+var waterfunctionTM = function(image){
+
+var ndwi = image.expression(
+    '(green - mir) / (green + mir)',
+    {
+        green: image.select('B2'),   
+        mir: image.select('B4')
+    }
+  )
+.rename('NDWI');
+
+//Indices greater than Threshold
+  var water01 = ndwi.gt(waterThreshold);
+
+  //Pixel mask
+  image = image.updateMask(water01).addBands(ndwi).clip(AOI);
+
+  //Area for the water pixels, in m2
+  var area = ee.Image.pixelArea();
+  var waterArea = water01.multiply(area).rename('waterArea');
+  image = image.addBands(waterArea);
+
+  var stats = waterArea.reduceRegion({
+    reducer: ee.Reducer.sum(), 
+    geometry: AOI, 
+    scale: 30,
+  });
+
+  return image.set(stats);
+};
+
+
+// A water function for Landsat 8 and 9
+var waterfunctionl89 = function(image){
+
+var ndwi = image.expression(
+    '(green - mir) / (green + mir)',
+    {
+        green: image.select('B3'),   
+        mir: image.select('B5')
+    }
+  )
+.rename('NDWI');
+
+//Indices greater than Threshold
+  var water01 = ndwi.gt(waterThreshold);
+
+  //Pixel mask
+  image = image.updateMask(water01).addBands(ndwi).clip(AOI);
+
+  //Area for the water pixels, in m2
+  var area = ee.Image.pixelArea();
+  var waterArea = water01.multiply(area).rename('waterArea');
+  image = image.addBands(waterArea);
+
+  var stats = waterArea.reduceRegion({
+    reducer: ee.Reducer.sum(), 
+    geometry: AOI, 
+    scale: 30,
+  });
+
+  return image.set(stats);
+};
+
+
+// Applying the code using Landsat 8 as an example. Sub in relevant masks and water functions for relevant deployments. Image collections used in this study include:
+//Landsat 1 MSS: LANDSAT/LM01/C02/T2
+//Landsat 2 MSS: LANDSAT/LM02/C02/T2
+//Landsat 3 MSS: LANDSAT/LM03/C01/T2
+//Landsat 4 TM: LANDSAT/LT04/C01/T1_SR
+//Landsat 5 TM: LANDSAT/LT05/C01/T1_SR
+//Landsat 8 OLI: LANDSAT/LC08/C01/T1_SR
+//Landsat 9 OLI+: LANDSAT/LC09/C01/T1_SR
+
+
+//Build the collection
+var L8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+  .filterBounds(AOI)
+
+
+//Apply the cloud mask to the collection
+var L8_0 = L8.map(maskL8sr);
+print('L8_0 Collection: Number of images: ', L8_0.size());
+
+
+
+//Apply the 'get cover' function which calculates the percentage of the image that is cloud free
+var L8cov = L8_0.map(getCover);
+
+
+
+// See the percentage covers of cloud free pixels for the images within the collection
+print('List of percentage of covers',L8cov.aggregate_array('percCover'));
+
+
+
+//Filter the image collection for images that have greater than 99.9% cloud free pixels 
+var L8fil = L8cov.filter(ee.Filter.gt('percCover', 99.999));
+
+
+
+// Check how many images are left within the image collection
+print('L8_0 Collection: Number of images: ', L8fil.size());
+
+
+// Apply the water function to the remaining images within the collection
+var l8WF = L8fil.map(waterfunctionl8);
+print('L8WF results', l8WF);
+
+
+
+// At this point, if you have multiple image collections you can merge them before you proceed to the next step. 
+// Example code to do this with potential collection 'L9WF': 
+//var img = ee.ImageCollection(L8WF.merge(L9WF));
+//Then check the size of the merged collection:
+//print('Img Collection: Number of images: ', img.size());
+
+
+//Create some options for the time series chart. 
+var options = {
+  lineWidth: 1,
+  pointSize: 2,
+  hAxis: {title: 'Date'},
+  vAxis: {title: 'Area (m2)'},
+  title: 'Inundated area through time'
+};
+
+// Create time series chart which allows you to see the 'waterArea' produced through the water function for the temporal scale of the collection.
+// Open up the chart and there is an option to download the csv file containing all information necessary for further analysis. 
+var chart = ui.Chart.image.series({
+  imageCollection: l8WF.select('waterArea'), 
+  region: FS, 
+  reducer: ee.Reducer.sum(), 
+  scale: 30})
+  .setOptions(options);
+  
+  print(chart);
